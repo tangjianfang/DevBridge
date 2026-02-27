@@ -61,7 +61,7 @@ export interface PluginManifest {
 
   // 插件入口文件（相对 manifest 目录）
   entry:      string;               // 如 'index.ts' 或 'dist/index.js'
-  isolation?: boolean;              // 默认 false；true = 独占 Child Process
+  isolation?: boolean;              // 默认 true；true = 独占 Child Process；false 可仅允许连接同一 stable-group
 }
 
 export type MatchRule =
@@ -250,8 +250,24 @@ export class PluginLoader implements IService {
   private async validatePluginExports(cjsCode: string): Promise<void> {
     const { Script } = await import('vm');
     const mod = { exports: {} as Record<string, unknown> };
-    const fn  = new Script(`(function(module,exports,require){${cjsCode}\n})`);
-    fn.runInNewContext({})({ exports: mod.exports, module: mod }, mod.exports, () => null);
+
+    // 运行时禁用模块拦截：补充 esbuild AST 拦截的盲区（动态 require(variable) 等运行时行为）
+    const RUNTIME_FORBIDDEN = [
+      'child_process', 'worker_threads', 'cluster',
+      'node-hid', 'serialport', '@abandonware/noble',
+    ];
+    const sandboxRequire = (mod: string): never => {
+      if (RUNTIME_FORBIDDEN.some(f => mod === f || mod.startsWith(f + '/'))) {
+        throw new Error(`[DevBridge] Plugin is not allowed to use '${mod}'.`);
+      }
+      throw new Error(`[DevBridge] require() is not available in sandbox validation context.`);
+    };
+
+    const fn = new Script(`(function(module,exports,require){${cjsCode}\n})`);
+    // timeout: 3000ms 防止使用曠循环或 CPU-spin 导致 Worker 挂起（DoS）
+    fn.runInNewContext({}, { timeout: 3000 })(                         // ← 修复：无超时设置
+      { exports: mod.exports, module: mod }, mod.exports, sandboxRequire
+    );
     if (typeof mod.exports['default'] !== 'function') {
       throw new Error('Plugin must default-export a PluginFactory function');
     }
@@ -420,10 +436,12 @@ export class PluginMatcher {
 ```
 PluginManifest(ffiConfig.dlls[].stability)
         │
-        ├─ ALL "stable"  ──► 多个 stable 插件可共享同一 Child Process（按 stability group 分组）
+        ├─ ALL "stable"  ──► 多个 stable 插件可共享同一 Child Process（按 stability group 分组，且 manifest.isolation !== false 方可合并）
         │
         └─ ANY "unstable" ──► 该插件独占一个 Child Process（isolation=true 强制触发）
 ```
+
+> ℹ️ `isolation` 默认为 `true`。若插件 manifest 明确设置 `isolation: false`，则允许合并到 stable-group。FFI `unstable` DLL 始终强制独占。
 
 ---
 
@@ -445,6 +463,8 @@ PluginManifest(ffiConfig.dlls[].stability)
 ## 10. 测试要点
 
 - **sandboxPlugin 阻断**：插件源码中 `require('child_process')`，断言 esbuild 输出的代码运行时抛 `Plugin is not allowed to use 'child_process'`
+- **运行时要求拦截**：插件通过动态 `eval('require')("child_process")` 尝试绕过，断言 `sandboxRequire` 抛错
+- **vm 超时防护**：插件源码包含死循环 `while(true){}`，断言 `validatePluginExports` 在 3000ms 内抛 `Script execution timed out`
 - **PluginMatcher 评分**：3 个 manifest，分别命中 transport+VID、transport+VID+PID、只 transport，断言返回最高分（+310pts）
 - **hotUpdate 成功**：注入新 source → 断言 Child Process 收到 PLUGIN_HOT_UPDATE IPC → 返回 PLUGIN_HOT_UPDATED → info.status = 'running'
 - **hotUpdate 回滚**：新 source 缺少 default export, 断言 info.status = 'error', 旧插件仍在运行

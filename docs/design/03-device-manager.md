@@ -166,6 +166,29 @@ export class DeviceManager implements IService {
     }
   }
 
+  private routeCommand(msg: IPCMessage): void {
+    const { deviceId, commandId, params, correlationId } =
+      msg.payload as { deviceId: string; commandId: string; params: Record<string, unknown>; correlationId: string };
+
+    const ch = this.devices.get(deviceId);
+    if (!ch || ch.info.status !== 'connected') {
+      // 设备不存在或未连接时立即回复错误，防止 CommandDispatcher 队列超时堆积
+      workerPort.postMessage({
+        type: 'DATA_RECEIVED',
+        payload: {
+          deviceId, correlationId,
+          error: { code: ch ? 'DEVICE_NOT_CONNECTED' : 'DEVICE_NOT_FOUND' },
+        },
+      } satisfies IPCMessage);
+      return;
+    }
+
+    // 先将 correlationId 入队，再发送命令字节；保证响应帧到达时能正确关联
+    ch.enqueueCorrelation(correlationId);
+    const encoded = ch.protocol!.encode(commandId, params);
+    ch.transport.send(encoded);
+  }
+
   private onDeviceAttached(raw: RawDeviceInfo): void {
     const id = buildDeviceId(raw);
     if (this.devices.has(id)) return; // 去重
@@ -209,6 +232,9 @@ export class DeviceChannel {
   protocol:  IProtocol | null;
   plugin:    IDevicePlugin | null;
 
+  // FIFO 队列：每次 CommandDispatcher 发送 COMMAND_SEND 时入队；
+  // onData 收到响应后按序出队并回传 correlationId。
+  private correlationIdQueue: string[] = [];
   private reconnector?: ReconnectController;
 
   static create(raw: RawDeviceInfo, proto: IProtocol | null): DeviceChannel {
@@ -270,10 +296,28 @@ export class DeviceChannel {
     } satisfies IPCMessage);
   }
 
+  /**
+   * 由 DeviceManager.routeCommand() 调用：
+   * 将该命令的 correlationId 入队，保证响应帧到达时能正确关联回答。
+   */
+  enqueueCorrelation(correlationId: string): void {
+    this.correlationIdQueue.push(correlationId);
+  }
+
   private onData(buf: Buffer, _ep: string): void {
     if (!this.protocol) return;
     const msg = this.protocol.decode(buf);
-    this.sendIPC('DATA_RECEIVED', { deviceId: this.info.deviceId, message: msg });
+    // correlationId 必须在微码收到前入队；队列为空说明收到了未期望的主动上报帧，丢弃并记录警告。
+    const correlationId = this.correlationIdQueue.shift();
+    if (!correlationId) {
+      this.sendIPC('LOG_ENTRY', {
+        level: 'warn',
+        message: 'DATA_RECEIVED without pending correlationId — unsolicited frame dropped',
+        deviceId: this.info.deviceId,
+      });
+      return;
+    }
+    this.sendIPC('DATA_RECEIVED', { deviceId: this.info.deviceId, correlationId, message: msg });
   }
 
   private onEvent(buf: Buffer, ep: string): void {
@@ -395,7 +439,7 @@ export class ReconnectController {
 | type | payload | 触发时机 |
 |------|---------|---------|
 | `DEVICE_STATUS_CHANGED` | `DeviceInfo` | 任何状态变更 |
-| `DATA_RECEIVED` | `{ deviceId, correlationId?, message: DecodedMessage }` | 命令响应解码完成 |
+| `DATA_RECEIVED` | `{ deviceId, correlationId: string, message: DecodedMessage }` | 命令响应解码完成 |
 | `BINARY_FRAME` | `{ deviceId, endpoint, buffer: Buffer, decoded? }` | 订阅事件帧到达 |
 | `LOG_ENTRY` | `{ level, message, deviceId? }` | 错误/警告日志 |
 | `METRICS_UPDATE` | `{ deviceId, bytesIn, bytesOut, timestamp }` | 每 5s 汇报一次 |
@@ -410,9 +454,10 @@ export class ReconnectController {
 import { createHash } from 'crypto';
 
 export function buildDeviceId(raw: RawDeviceInfo): string {
-  // fingerprintHash8：取 address + vendorId + productId + serialNumber 的 SHA-256 前 8 字符
+  // fingerprintHash16：取 address + vendorId + productId + serialNumber 的 SHA-256 前 16 字符（64 bit）
+  // 修正：原来的 8 字符（32 bit）哈希空间过小，大量网络设备场景下框冲突概率不可忽视。
   const fingerprint = `${raw.address}:${raw.vendorId ?? 0}:${raw.productId ?? 0}:${raw.serialNumber ?? ''}`;
-  const hash = createHash('sha256').update(fingerprint).digest('hex').slice(0, 8);
+  const hash = createHash('sha256').update(fingerprint).digest('hex').slice(0, 16);
   return `${raw.transportType}:${hash}`;
 }
 ```

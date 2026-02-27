@@ -99,7 +99,10 @@ export interface FieldDef {
   lengthField?: string;             // 动态长度：引用前置字段名
   countField?:  string;             // array：引用前置字段名
   count?:       number;             // array：固定数量
-  condition?:   string;             // conditional：JS 表达式字符串
+  condition?:   string;             // conditional：安全表达式字符串
+                                    // 允许：四则运算、比较运算符、属性访问（fields.xxx）、逻辑运算符
+                                    // 禁止：函数调用、new、跨作用域访问
+                                    // 实现：通过正则白名单验证，再用 new Function('fields', `return (${condition})`) 调用，不直接 eval
   bits?:        BitField[];         // bitmap 专用
   fields?:      FieldDef[];         // struct / conditional 嵌套
   default?:     unknown;            // encode 时缺省值
@@ -327,7 +330,7 @@ export class ProtocolRegistry {
 
   private parseSchema(content: string, ext: string): ProtocolSchema {
     if (ext === '.json') return JSON.parse(content) as ProtocolSchema;
-    // TypeScript schema：esbuild 编译到 CJS 后 eval（sandbox 已在外层处理）
+    // TypeScript schema：esbuild 编译到 CJS 后通过 sandboxPlugin + vm.runInNewContext（timeout: 3000ms）说行，禁止直接 eval
     throw new Error('TS schema must be processed via sandboxedWorker');
   }
 

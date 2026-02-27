@@ -94,9 +94,9 @@ export interface Settings {
 | GET | `/system/metrics` | 当前系统指标快照 | — | `MetricsSnapshot` |
 | GET | `/system/diagnostics` | 获取最近诊断结果 | `?limit=` | `DiagnosticResult[]` |
 | POST | `/system/diagnostics/run` | 立即运行一次全量诊断 | — | `DiagnosticResult` |
-| GET | `/system/settings` | 读取当前 Settings | — | `Settings` |
-| PUT | `/system/settings` | 更新 Settings（部分字段） | `Partial<Settings>` | `Settings` |
-| POST | `/system/config/export` | 导出全量配置 JSON | — | `string`（JSON 文件内容） |
+| GET | `/system/settings` | 读取当前 Settings | — | `Settings`（`apiKey` 字段返回时脐名为 `"***"`，禁止将密钥明文返回客户端） |
+| PUT | `/system/settings` | 更新 Settings（部分字段） | `Partial<Settings>` | `Settings`（同上，`apiKey` 脐名） |
+| POST | `/system/config/export` | 导出全量配置 JSON | — | `string`（JSON 文件内容；**`apiKey` 等敏感字段在导出时将被展除或加密，防止历史备份泴露密钥**） |
 | POST | `/system/config/import` | 导入配置（暂存，待确认） | `{ config: string }` | `{ previewId: string }` |
 | POST | `/system/config/confirm` | 确认应用导入的配置 | `{ previewId: string }` | `{ applied: true }` |
 | GET | `/system/update` | 检查更新 | — | `{ current, latest, hasUpdate }` |
@@ -107,7 +107,8 @@ export interface Settings {
 ## 4. WebSocket 事件全集
 
 > WS 连接地址：`ws://host:port/ws`  
-> 鉴权（lan 模式）：WS URL query 参数 `?key=<apiKey>` 或首帧发送 `{ type: "auth", key: "..." }`
+> 鉴权（lan 模式）：连接建立后 **必须在首帧** 发送 `{ type: "auth", key: "<apiKey>" }`；服务端在收到合法 auth 帧之前拒绝处理任何业务消息（直接关闭连接）。  
+> ⚠️ URL query `?key=<apiKey>` 方式**已废弃**——query string 会被反向代理日志、浏览器历史明文记录，存在密钥泄露风险。
 
 ### 4.1 Server → Client（S→C）
 
@@ -165,10 +166,12 @@ Offset  Size  Field
 
 export class GatewayService implements IService {
   private fastify!: FastifyInstance;
+  private settings!: Settings;
   private wsClients = new Map<string, WsConnection>();
   private packetTapSubscriptions = new Map<string, Set<string>>(); // deviceId → Set<clientId>
 
   async start(settings: Settings): Promise<void> {
+    this.settings = settings;
     this.fastify = Fastify({ logger: false });
     await this.fastify.register(fastifyWebsocket);
     await this.fastify.register(fastifyCors, settings.cors);
@@ -178,7 +181,9 @@ export class GatewayService implements IService {
 
     this.fastify.get('/ws', { websocket: true }, (socket, _req) => {
       const clientId = crypto.randomUUID();
-      const conn: WsConnection = { socket, clientId, subscriptions: new Set() };
+      // local 模式无需鉴权；lan 模式须等待首帧 auth 消息才置 authenticated=true
+      const isLocal = this.settings.mode === 'local';
+      const conn: WsConnection = { socket, clientId, subscriptions: new Set(), authenticated: isLocal };
       this.wsClients.set(clientId, conn);
 
       socket.on('message', (raw) => this.onWsMessage(conn, raw));
@@ -199,6 +204,7 @@ export class GatewayService implements IService {
     return { status: 'ok', details: { wsClients: this.wsClients.size } };
   }
 
+  /** 系统级全量广播（notifications、metrics 等与特定设备无关的消息）*/
   broadcast(type: string, payload: unknown): void {
     const msg = JSON.stringify({ type, payload });
     for (const [, c] of this.wsClients) {
@@ -206,15 +212,52 @@ export class GatewayService implements IService {
     }
   }
 
-  broadcastBinaryFrame(frame: ArrayBuffer): void {
+  /**
+   * 设备事件定向推送：仅向已通过 device:subscribe 订阅该 deviceId 的客户端发送。
+   * 用于 device:event、device:response、device:connected 等与特定设备绑定的消息。
+   */
+  broadcastToDeviceSubscribers(deviceId: string, type: string, payload: unknown): void {
+    const msg = JSON.stringify({ type, payload });
     for (const [, c] of this.wsClients) {
-      if (c.socket.readyState === WebSocket.OPEN) c.socket.send(frame);
+      if (c.socket.readyState === WebSocket.OPEN && c.subscriptions.has(deviceId)) {
+        c.socket.send(msg);
+      }
+    }
+  }
+
+  /**
+   * Binary Frame（PacketTap）定向推送：仅向已通过 packettap:subscribe 订阅该设备的客户端发送。
+   * 修正：原全量广播导致所有客户端收到任意设备原始帧，存在越权数据泄露。
+   */
+  broadcastBinaryFrame(deviceId: string, frame: ArrayBuffer): void {
+    const subs = this.packetTapSubscriptions.get(deviceId);
+    if (!subs || subs.size === 0) return;
+    for (const clientId of subs) {
+      const c = this.wsClients.get(clientId);
+      if (c?.socket.readyState === WebSocket.OPEN) c.socket.send(frame);
     }
   }
 
   private onWsMessage(conn: WsConnection, raw: Buffer | string): void {
     try {
-      const msg = JSON.parse(raw.toString()) as { type: string; payload: unknown };
+      const msg = JSON.parse(raw.toString()) as { type: string; key?: string; payload: unknown };
+
+      // ── 鉴权守卫 ──────────────────────────────────────────────────────────
+      // lan 模式下，未通过鉴权的连接只允许处理 auth 帧；其余消息一律丢弃并关闭连接。
+      if (!conn.authenticated) {
+        if (msg.type === 'auth') {
+          if (msg.key && this.settings.apiKey && msg.key === this.settings.apiKey) {
+            conn.authenticated = true;
+            conn.socket.send(JSON.stringify({ type: 'auth:ok' }));
+          } else {
+            conn.socket.send(JSON.stringify({ type: 'auth:fail', code: 'GATEWAY_AUTH_FAILED' }));
+            conn.socket.close();
+          }
+        }
+        // 未鉴权时所有非 auth 消息直接忽略（不向客户端暴露任何信息）
+        return;
+      }
+      // ── 业务消息处理（已鉴权）──────────────────────────────────────────────
       switch (msg.type) {
         case 'device:command':
           workerPort.postMessage({ type: 'COMMAND_SEND', payload: msg.payload });
@@ -248,9 +291,10 @@ export class GatewayService implements IService {
 }
 
 interface WsConnection {
-  socket:        WebSocket;
-  clientId:      string;
-  subscriptions: Set<string>;  // 订阅的 deviceId 集合
+  socket:          WebSocket;
+  clientId:        string;
+  subscriptions:   Set<string>;   // 订阅的 deviceId 集合（device:subscribe）
+  authenticated:   boolean;       // lan 模式下首帧 auth 通过后置 true；local 模式恒为 true
 }
 ```
 
@@ -291,7 +335,11 @@ interface WsConnection {
 - **auth local**：不带 Key 访问 `127.0.0.1`，断言 200
 - **auth lan 缺 key**：访问 `0.0.0.0` 不带 `X-DevBridge-Key`，断言 401
 - **rate limit**：60s 内超过 max 次请求，断言第 max+1 次返回 429
-- **WS device:command**：发送后等待 `device:response` 含相同 correlationId
-- **packettap:subscribe**：订阅后 Worker 发 BINARY_FRAME，断言客户端收到 ArrayBuffer，前 4 字节 = DBRG
-- **broadcast()**：连接 3 个 WS 客户端，调用 broadcast()，断言 3 个均收到相同消息
+- **WS auth 绕过防御**：lan 模式下，连接后直接发 `device:command` 而不发 `auth` 帧，断言连接被关闭，命令未被执行
+- **WS auth 成功流**：lan 模式，发送 `{ type: "auth", key: "<valid>" }`，收到 `auth:ok`，之后可正常发消息
+- **WS auth key 错误**：发送错误 key，收到 `auth:fail` 且连接关闭
+- **WS device:command**：鉴权后发送，等待 `device:response` 含相同 correlationId
+- **packettap:subscribe**：订阅设备 A 后 Worker 发 BINARY_FRAME(deviceA)，断言仅订阅者收到；未订阅设备 B 的客户端断言不收到 deviceB 的帧
+- **broadcastToDeviceSubscribers**：3 个客户端，仅 2 个订阅了 deviceX，调用后断言只有这 2 个收到消息
+- **broadcast()**：连接 3 个 WS 客户端，调用 broadcast()，断言 3 个均收到相同消息（全局消息场景）
 - **stop() 幂等**：调用两次 stop()，不抛错
