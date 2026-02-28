@@ -33,8 +33,13 @@ export class UsbHidScanner extends BaseScanner {
     this._watching = true;
 
     let knownAddresses = new Set<string>();
+
+    // Emit 'attached' for devices already connected at startup
     this.scan().then((devs) => {
-      knownAddresses = new Set(devs.map((d) => d.address));
+      for (const d of devs) {
+        knownAddresses.add(d.address);
+        this.emit('attached', d);
+      }
     });
 
     usb!.usb.on('attach', async () => {

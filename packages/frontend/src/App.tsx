@@ -243,16 +243,6 @@ export default function App() {
   const allDevices = useDeviceStore(useShallow(s => [...s.devices.values()]));
   const unread     = useNotificationStore(s => s.unreadCount);
   const [tab, setTab] = useState<Tab>('devices');
-  const [addingDemo, setAddingDemo] = useState(false);
-
-  const addDemoDevice = useCallback(async () => {
-    setAddingDemo(true);
-    try {
-      await fetch('/api/v1/demo/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    } finally {
-      setAddingDemo(false);
-    }
-  }, []);
 
   const refreshDevices = useCallback(async () => {
     try {
@@ -382,17 +372,6 @@ export default function App() {
                   >
                     ↻ Refresh
                   </button>
-                  <button
-                    onClick={() => void addDemoDevice()}
-                    disabled={addingDemo}
-                    style={{
-                      background: addingDemo ? '#334155' : '#0f4c75', color: '#93c5fd',
-                      border: '1px solid #1d4ed8', borderRadius: '4px', padding: '4px 10px',
-                      cursor: addingDemo ? 'not-allowed' : 'pointer', fontSize: '12px',
-                    }}
-                  >
-                    {addingDemo ? 'Adding…' : '+ Demo Device'}
-                  </button>
                 </span>
               </div>
               {allDevices.length === 0 ? (
@@ -408,22 +387,6 @@ export default function App() {
                   <div style={{ fontSize: '13px', marginTop: '6px' }}>
                     Connect a device via USB, Serial, or BLE
                   </div>
-                  <button
-                    onClick={() => void addDemoDevice()}
-                    disabled={addingDemo}
-                    style={{
-                      marginTop:    '20px',
-                      background:   addingDemo ? '#334155' : '#0f4c75',
-                      color:        '#93c5fd',
-                      border:       '1px solid #1d4ed8',
-                      borderRadius: '6px',
-                      padding:      '8px 20px',
-                      cursor:       addingDemo ? 'not-allowed' : 'pointer',
-                      fontSize:     '13px',
-                    }}
-                  >
-                    {addingDemo ? 'Adding…' : '+ Add Demo Device'}
-                  </button>
                 </div>
               ) : (
                 allDevices.map(d => (

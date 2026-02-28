@@ -9,7 +9,14 @@ import { GatewayService, setGatewayIpcSend } from './gateway/index.js';
 import { CommandDispatcher } from './command-dispatcher/index.js';
 import { DeviceManager } from './device-manager/index.js';
 import { PluginLoader } from './plugin-loader/index.js';
+import { UsbHidScanner } from './transport/usb-hid/usb-hid-scanner.js';
+import { UsbNativeScanner } from './transport/usb-native/usb-native-scanner.js';
+import { SerialScanner } from './transport/serial/serial-scanner.js';
+import { registerTransports } from './transport/index.js';
 import type { IPCMessage } from '@devbridge/shared';
+
+// Register all transport implementations before any device attaches
+registerTransports();
 
 // ── Portable source-dir resolution ─────────────────────────────────────────
 // Works in:
@@ -64,6 +71,12 @@ const gw  = new GatewayService();
 const cmd = new CommandDispatcher();
 const dm  = new DeviceManager();
 const pl  = new PluginLoader();
+
+// ── Register hardware scanners ────────────────────────────────────────────────
+
+dm.registerScanner('usb-hid',    new UsbHidScanner());
+dm.registerScanner('usb-native', new UsbNativeScanner());
+dm.registerScanner('serial',     new SerialScanner());
 
 // ── IPC wiring ────────────────────────────────────────────────────────────────
 //

@@ -168,7 +168,14 @@ export class DeviceManager implements IService {
   // ──────────────────────────────────────────────────────────
 
   private onDeviceAttached(raw: RawDeviceInfo): void {
-    const ch = DeviceChannel.create(raw, this.protocolSelector(raw));
+    let ch: DeviceChannel;
+    try {
+      ch = DeviceChannel.create(raw, this.protocolSelector(raw));
+    } catch (err) {
+      // Transport type not registered (e.g. unsupported HW) — skip silently
+      console.warn(`[DeviceManager] skipping device ${raw.address}: ${(err as Error).message}`);
+      return;
+    }
     const id = ch.info.deviceId;
     if (this.devices.has(id)) return; // de-duplicate (hot-plug duplicate guard)
     this.devices.set(id, ch);

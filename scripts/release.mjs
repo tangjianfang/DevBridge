@@ -199,9 +199,79 @@ Requirements:
 `);
 console.log('  wrote   README.txt');
 
-// ── Step 6: Create zip archive ───────────────────────────────────────────────
+// ── Step 6: Copy native node_modules → portable dir ─────────────────────────
+//
+// Native modules (node-hid, usb, serialport) have .node binaries that can't
+// be bundled. We copy their entire package directories — plus their own
+// transitive deps (pnpm keeps those as siblings in the same virtual-store
+// node_modules folder) — into release/devbridge-win-x64/node_modules/.
 
-console.log('\n── Step 6: Create zip archive ───────────────────────────────────');
+console.log('\n── Step 6: Copy native node_modules → portable dir ──────────────');
+
+import { createRequire } from 'node:module';
+const serverRequire = createRequire(path.join(ROOT, 'packages', 'server', 'package.json'));
+
+const nativePackages = [
+  'node-hid',
+  'usb',
+  'serialport',
+];
+
+const nativeModulesDestDir = path.join(PORTABLE_DIR, 'node_modules');
+fs.mkdirSync(nativeModulesDestDir, { recursive: true });
+
+const alreadyCopied = new Set();
+
+function copyPackageAndSiblings(pkgName) {
+  if (alreadyCopied.has(pkgName)) return;
+  try {
+    const pkgJsonPath = serverRequire.resolve(`${pkgName}/package.json`);
+    const pkgDir      = path.dirname(pkgJsonPath);   // .../node_modules/node-hid
+    const siblingDir  = path.dirname(pkgDir);         // .../node_modules  (pnpm virtual store siblings)
+
+    // Copy all packages in the sibling directory (pkg itself + its peer deps)
+    for (const entry of fs.readdirSync(siblingDir)) {
+      const entryPath = path.join(siblingDir, entry);
+      if (!fs.statSync(entryPath).isDirectory()) continue;
+
+      if (entry.startsWith('@')) {
+        // Scoped packages: copy each scoped package inside
+        for (const scoped of fs.readdirSync(entryPath)) {
+          const scopedPkg  = `${entry}/${scoped}`;
+          const scopedSrc  = path.join(entryPath, scoped);
+          const scopedDest = path.join(nativeModulesDestDir, entry, scoped);
+          if (!alreadyCopied.has(scopedPkg) && fs.statSync(scopedSrc).isDirectory()) {
+            alreadyCopied.add(scopedPkg);
+            fs.cpSync(scopedSrc, scopedDest, { recursive: true });
+            console.log(`  copied  ${scopedPkg}`);
+          }
+        }
+      } else {
+        const dest = path.join(nativeModulesDestDir, entry);
+        if (!alreadyCopied.has(entry)) {
+          alreadyCopied.add(entry);
+          fs.cpSync(entryPath, dest, { recursive: true });
+          console.log(`  copied  ${entry}`);
+        }
+      }
+    }
+    // Mark the top-level package name as copied (may differ from dir name for scoped)
+    alreadyCopied.add(pkgName);
+  } catch {
+    console.log(`  skip    ${pkgName} (not installed or optional)`);
+    alreadyCopied.add(pkgName); // avoid retry
+  }
+}
+
+for (const pkgName of nativePackages) {
+  console.log(`\n  resolving ${pkgName}…`);
+  copyPackageAndSiblings(pkgName);
+}
+console.log(`\n  total   ${alreadyCopied.size} package(s) copied`);
+
+// ── Step 7: Create zip archive ───────────────────────────────────────────────
+
+console.log('\n── Step 7: Create zip archive ───────────────────────────────────');
 
 const zipName    = `DevBridge-v${VERSION}-win-x64.zip`;
 const zipOutPath = path.join(RELEASE, zipName);
@@ -220,30 +290,6 @@ if (isWin) {
 if (fs.existsSync(zipOutPath)) {
   const zipSizeMb = (fs.statSync(zipOutPath).size / 1024 / 1024).toFixed(1);
   console.log(`  ✓  ${zipName}  (${zipSizeMb} MB)`);
-}
-
-// ── Step 7: Copy native bindings alongside distribution ───────────────────────
-
-// ── Step 7: Copy native bindings alongside distribution ───────────────────────
-
-console.log('\n── Step 7: Copy native .node modules → portable dir ─────────────');
-
-const nativeModules = [
-  'node_modules/node-hid/build/Release/HID.node',
-  'node_modules/node-hid/build/Release/HID_hidraw.node',
-  'node_modules/@serialport/bindings-cpp/build/Release/bindings.node',
-  'node_modules/usb/build/Release/usb_bindings.node',
-];
-
-for (const modPath of nativeModules) {
-  const src = path.join(ROOT, modPath);
-  if (fs.existsSync(src)) {
-    const dest = path.join(PORTABLE_DIR, path.basename(src));
-    fs.copyFileSync(src, dest);
-    console.log(`  copied  ${path.basename(src)}`);
-  } else {
-    console.log(`  skip    ${path.basename(src)} (optional — not installed)`);
-  }
 }
 
 // ── Done ──────────────────────────────────────────────────────────────────────

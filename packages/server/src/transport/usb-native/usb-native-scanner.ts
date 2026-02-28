@@ -28,8 +28,13 @@ export class UsbNativeScanner extends BaseScanner {
 
   startWatching(): void {
     if (!usb) return;
+
+    // Emit 'attached' for devices already connected at startup
     this.scan().then((devs) => {
-      this.knownAddresses = new Set(devs.map((d) => d.address));
+      for (const d of devs) {
+        this.knownAddresses.add(d.address);
+        this.emit('attached', d);
+      }
     });
 
     usb!.usb.on('attach', (dev: import('usb').usb.Device) => {

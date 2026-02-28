@@ -31,9 +31,12 @@ export class SerialScanner extends BaseScanner {
 
   startWatching(): void {
     if (this.pollTimer) return;
-    // Initial scan
+    // Initial scan — emit 'attached' for ports already present at startup
     this.scan().then((devs) => {
-      this.knownPaths = new Set(devs.map((d) => d.address));
+      for (const d of devs) {
+        this.knownPaths.add(d.address);
+        this.emit('attached', d);
+      }
     });
 
     this.pollTimer = setInterval(async () => {
