@@ -224,11 +224,12 @@ export class CommandDispatcher implements IService {
   // ── Private: resolve / remove pending ─────────────────────────────────────
 
   private _resolveCommand(payload: Record<string, unknown>): void {
-    const { deviceId, correlationId, message, rawBuffer } = payload as {
+    const { deviceId, correlationId, message, rawBuffer, error } = payload as {
       deviceId:      string;
       correlationId: string;
-      message:       DecodedMessage;
-      rawBuffer:     Buffer;
+      message?:      DecodedMessage;
+      rawBuffer?:    Buffer;
+      error?:        { code: string; message?: string };
     };
 
     const queue = this.queues.get(deviceId);
@@ -240,12 +241,23 @@ export class CommandDispatcher implements IService {
     const [pending] = queue.splice(idx, 1) as [PendingCommand];
     clearTimeout(pending.timer);
 
+    // DeviceManager may reply with an error (e.g. DEVICE_NOT_FOUND)
+    if (error) {
+      pending.reject(
+        Object.assign(
+          new Error(error.message ?? error.code),
+          { errorCode: error.code },
+        ),
+      );
+      return;
+    }
+
     pending.resolve({
       deviceId,
       correlationId,
-      success:   true,
-      data:      message.fields,
-      rawBuffer,
+      success:    true,
+      data:       message!.fields,
+      rawBuffer:  rawBuffer as Buffer,
       durationMs: Date.now() - pending.startAt,
     });
   }

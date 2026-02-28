@@ -438,7 +438,11 @@ export class GatewayService implements IService {
     });
 
     f.get(`${PREFIX}/system/metrics`, async (_req, reply) => {
-      await reply.send({ data: this.metrics() });
+      const m = this.metrics();
+      // BigInt is not JSON-serializable; convert uptime to number for HTTP
+      await reply.send({
+        data: { ...m, uptime: Number(m.uptime) },
+      });
     });
 
     f.get(`${PREFIX}/system/diagnostics`, async (_req, reply) => reply.send({ data: [] }));
