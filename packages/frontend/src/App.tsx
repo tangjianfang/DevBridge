@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useDeviceStore } from './mw/stores/device-store.js';
 import { useNotificationStore } from './mw/stores/notification-store.js';
 import { useMetricsStore } from './mw/stores/metrics-store.js';
@@ -32,7 +33,7 @@ function WsStatusBadge({ status }: { status: string }) {
 
 function DeviceCard({ deviceId }: { deviceId: string }) {
   const device   = useDeviceStore(s => s.getDevice(deviceId));
-  const events   = useDeviceStore(s => s.eventBuffer.get(deviceId) ?? []);
+  const events   = useDeviceStore(useShallow(s => s.eventBuffer.get(deviceId) ?? []));
   const [cmd, setCmd]     = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy]   = useState(false);
@@ -238,8 +239,8 @@ type Tab = 'devices' | 'metrics' | 'notifications';
 
 export default function App() {
   const wsStatus   = useDeviceStore(s => s.wsStatus);
-  const devices    = useDeviceStore(s => s.getConnectedDevices());
-  const allDevices = useDeviceStore(s => [...s.devices.values()]);
+  const devices    = useDeviceStore(useShallow(s => s.getConnectedDevices()));
+  const allDevices = useDeviceStore(useShallow(s => [...s.devices.values()]));
   const unread     = useNotificationStore(s => s.unreadCount);
   const [tab, setTab] = useState<Tab>('devices');
 
