@@ -139,7 +139,7 @@ jobs:
           path: artifacts/
 
       - name: List artifacts
-        run: ls -lh artifacts/ || true
+        run: find artifacts/ -type f | sort
 
       - name: Determine pre-release flag
         id: prerelease
@@ -158,8 +158,8 @@ jobs:
           tag_name:   ${{ needs.version.outputs.tag }}
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
-          fail_on_unmatched_files: false
-          files: artifacts/release/*.zip
+          fail_on_unmatched_files: true
+          files: artifacts/**/*.zip
           body: |
             ## DevBridge v${{ needs.version.outputs.version }}
 
