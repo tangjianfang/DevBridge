@@ -1,6 +1,6 @@
 {
   "name": "@devbridge/plugin-sdk",
-  "version": "1.0.0",
+  "version": "0.1.0-beta.1",
   "private": true,
   "description": "DevBridge Plugin SDK — build hardware device plugins",
   "main":  "./dist/index.js",

@@ -1,0 +1,12 @@
+{
+  "mode": "local",
+  "port": 4000,
+  "cors": {
+    "enabled": false,
+    "origins": []
+  },
+  "rateLimit": {
+    "max": 100,
+    "timeWindow": "1 minute"
+  }
+}

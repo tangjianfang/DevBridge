@@ -1,7 +1,7 @@
 {
   "name": "devbridge-monorepo",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0-beta.1",
   "description": "DevBridge — Universal Hardware Interface Platform",
   "engines": { "node": ">=20.0.0", "pnpm": ">=9.0.0" },
   "packageManager": "pnpm@9.15.0",
@@ -15,7 +15,10 @@
     "lint":         "eslint packages/*/src --ext .ts,.tsx",
     "typecheck":    "pnpm -r run typecheck",
     "dev":          "pnpm --parallel -r run dev",
-    "clean":        "pnpm -r run clean && rimraf node_modules"
+    "clean":        "pnpm -r run clean && rimraf node_modules dist release",
+    "bundle":       "node packages/server/scripts/build.mjs",
+    "dist":         "node scripts/release.mjs",
+    "dist:skip-fe": "node scripts/release.mjs --skip-fe"
   },
   "devDependencies": {
     "@types/node":           "^20.17.0",

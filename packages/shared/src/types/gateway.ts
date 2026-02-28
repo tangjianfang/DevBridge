@@ -5,6 +5,8 @@ export interface GatewaySettings {
   mode:       'local' | 'lan';
   port:       number;
   apiKey?:    string;
+  /** Absolute path to serve static frontend assets from (e.g. dist/public) */
+  staticDir?: string;
   cors: {
     enabled:   boolean;
     origins:   string[];

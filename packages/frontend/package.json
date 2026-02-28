@@ -1,12 +1,12 @@
 {
   "name": "@devbridge/frontend",
-  "version": "1.0.0",
+  "version": "0.1.0-beta.1",
   "private": true,
   "description": "DevBridge frontend — React control panel",
   "type": "module",
   "scripts": {
     "dev":       "vite",
-    "build":     "tsc -p tsconfig.json && vite build",
+    "build":     "vite build",
     "preview":   "vite preview",
     "clean":     "rimraf dist",
     "test":      "vitest run",

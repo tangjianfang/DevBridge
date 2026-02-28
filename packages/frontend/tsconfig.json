@@ -7,13 +7,12 @@
     "module":    "ESNext",
     "moduleResolution": "bundler",
     "jsx":       "react-jsx",
-    "rootDir":   "src",
     "outDir":    "dist",
     "noEmit":    true,
     "paths": {
       "@devbridge/shared": ["../shared/src"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../shared/src/**/*"],
   "exclude": ["dist", "node_modules"]
 }

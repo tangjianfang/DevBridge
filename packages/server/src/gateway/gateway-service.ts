@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyWebsocket from '@fastify/websocket';
 import fastifyCors from '@fastify/cors';
 import fastifyRateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
 import type {
   IService,
   ServiceHealth,
@@ -126,6 +127,20 @@ export class GatewayService implements IService {
     this._registerAuthHook();
     this._registerRoutes();
     this._registerWsRoute();
+
+    // Serve bundled frontend (only when staticDir is provided)
+    if (this.settings.staticDir) {
+      await this.fastify.register(fastifyStatic, {
+        root:       this.settings.staticDir,
+        prefix:     '/',
+        wildcard:   false,
+        index:      'index.html',
+      });
+      // SPA fallback — any unknown GET route returns index.html
+      this.fastify.setNotFoundHandler((_req, reply) => {
+        void reply.sendFile('index.html');
+      });
+    }
 
     await this.fastify.ready();
   }

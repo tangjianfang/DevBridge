@@ -4,6 +4,8 @@
 /node_modules
 /.pnp
 .pnp.js
+packages/*/node_modules
+node_modules
 
 # testing
 /coverage
@@ -14,6 +16,14 @@
 
 # production
 /build
+/dist
+/release
+packages/*/dist
+packages/server/scripts/*.mjs.map
+pkg.config.json
+
+# installer output
+installer/Output/
 
 # misc
 .DS_Store
