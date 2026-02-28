@@ -47,8 +47,10 @@ function resolveStaticDir(): string | undefined {
     const exeDir = path.dirname(process.execPath);
     return path.join(exeDir, 'public');
   }
+  // Portable release: public/ lives next to server.cjs
   // Development: look for the built frontend in the monorepo
   const candidates = [
+    path.join(_scriptDir, 'public'),
     path.resolve(_scriptDir, '..', '..', '..', 'packages', 'frontend', 'dist'),
     path.resolve(process.cwd(), 'packages', 'frontend', 'dist'),
     path.resolve(process.cwd(), 'dist', 'public'),
