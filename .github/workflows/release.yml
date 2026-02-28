@@ -68,14 +68,15 @@ jobs:
         env:
           NODE_ENV: production
 
-      - name: Verify exe exists
+      - name: Verify release artifacts
         run: |
-          if (!(Test-Path "release\devbridge.exe")) {
-            Write-Error "EXE not found!"
+          $zip = Get-Item "release\*.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (!$zip) {
+            Write-Error "Release zip not found under release\!"
             exit 1
           }
-          $size = (Get-Item "release\devbridge.exe").Length / 1MB
-          Write-Host "devbridge.exe size: $([math]::Round($size,1)) MB"
+          $size = $zip.Length / 1MB
+          Write-Host "Release artifact: $($zip.Name)  ($([math]::Round($size,1)) MB)"
 
       # ── Build Inno Setup installer (optional — needs Inno Setup installed) ──
       - name: Install Inno Setup
@@ -148,12 +149,12 @@ jobs:
 
             **Option A — Installer (recommended)**
             Download `DevBridge-Setup-*.exe` and run it. The installer will:
-            - Place `devbridge.exe` in `%PROGRAMFILES%\DevBridge\`
+            - Install DevBridge to `%PROGRAMFILES%\DevBridge\`
             - Create desktop & Start Menu shortcuts
             - Optionally register a Windows Service
 
-            **Option B — Portable EXE**
-            Download `devbridge.exe`, place it anywhere, and run it directly.
+            **Option B — Portable zip**
+            Download `DevBridge-*-win-x64.zip`, extract anywhere, and run `start.bat`.
             The frontend UI will be served at http://localhost:4000
 
             ### Requirements
