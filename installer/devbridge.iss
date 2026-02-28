@@ -3,13 +3,18 @@
 ;
 ; Pre-requisite: run  node scripts/release.mjs  to build the portable distribution first.
 ;
-; Build:
+; Build (local):
 ;   iscc installer\devbridge.iss
 ;
-; Output: installer\Output\DevBridge-Setup-0.1.0-beta.1.exe
+; Build (specific version):
+;   iscc /DAppVersion=0.1.0-beta.10 installer\devbridge.iss
+;
+; Output: release\DevBridge-Setup-{version}-win-x64.exe
 
 #define AppName      "DevBridge"
-#define AppVersion   "0.1.0-beta.1"
+#ifndef AppVersion
+  #define AppVersion "0.1.0-dev"
+#endif
 #define AppPublisher "DevBridge Team"
 #define AppURL       "https://github.com/tangjianfang/DevBridge"
 #define AppService   "DevBridgeGateway"
@@ -27,8 +32,8 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
-OutputDir=Output
-OutputBaseFilename=DevBridge-Setup-{#AppVersion}
+OutputDir=..\release
+OutputBaseFilename=DevBridge-Setup-{#AppVersion}-win-x64
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

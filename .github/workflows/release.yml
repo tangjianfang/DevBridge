@@ -90,21 +90,31 @@ jobs:
           NODE_ENV: production
           DEVBRIDGE_VERSION: ${{ needs.version.outputs.version }}
 
+      - name: Install Inno Setup 6
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows EXE installer
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          & $iscc /DAppVersion=${{ needs.version.outputs.version }} installer\devbridge.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Verify release artifacts
         run: |
           $zip = Get-Item "release\*.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (!$zip) {
-            Write-Error "Release zip not found under release\!"
-            exit 1
-          }
-          $size = $zip.Length / 1MB
-          Write-Host "Release artifact: $($zip.Name)  ($([math]::Round($size,1)) MB)"
+          $exe = Get-Item "release\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (!$zip) { Write-Error "Release zip not found!"; exit 1 }
+          if (!$exe) { Write-Error "Release exe not found!"; exit 1 }
+          Write-Host "ZIP: $($zip.Name)  ($([math]::Round($zip.Length/1MB,1)) MB)"
+          Write-Host "EXE: $($exe.Name)  ($([math]::Round($exe.Length/1MB,1)) MB)"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: devbridge-windows-${{ needs.version.outputs.tag }}
-          path: release/*.zip
+          path: |
+            release/*.zip
+            release/*.exe
           if-no-files-found: error
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
@@ -159,7 +169,9 @@ jobs:
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: artifacts/**/*.zip
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.exe
           body: |
             ## DevBridge v${{ needs.version.outputs.version }}
 
