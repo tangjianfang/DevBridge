@@ -23,6 +23,12 @@ export function initStoreWiring(): void {
   const ms  = useMetricsStore.getState;
   const ps  = usePluginStore.getState;
 
+  wsEventBus.on('device:list',       (payload: unknown) => {
+    for (const device of (payload as DeviceInfo[])) {
+      ds().upsertDevice(device);
+    }
+  });
+  wsEventBus.on('device:attached',   (payload: unknown) => ds().upsertDevice(payload as DeviceInfo));
   wsEventBus.on('device:connected',    (payload: unknown) => ds().upsertDevice(payload as DeviceInfo));
   wsEventBus.on('device:disconnected', (payload: unknown) => {
     const p = payload as { deviceId: string };

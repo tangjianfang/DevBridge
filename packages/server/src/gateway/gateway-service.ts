@@ -16,6 +16,7 @@ import type {
   BroadcastResult,
   MetricsSnapshot,
   DiagnosticResult,
+  DeviceInfo,
 } from '@devbridge/shared';
 
 // ── Module-level IPC sender ───────────────────────────────────────────────────
@@ -77,6 +78,10 @@ export class GatewayService implements IService {
 
   /** Connected WS clients (clientId → WsConnection) */
   readonly wsClients = new Map<string, WsConnection>();
+
+  /** Known devices — updated by DEVICE_STATUS_CHANGED IPC messages.
+   *  Used for: initial sync to new WS clients + REST /devices response. */
+  private readonly deviceRegistry = new Map<string, DeviceInfo>();
 
   /** PacketTap subscriptions: deviceId → Set<clientId> */
   private readonly packetTapSubscriptions = new Map<string, Set<string>>();
@@ -211,15 +216,23 @@ export class GatewayService implements IService {
         break;
       }
       case 'DEVICE_STATUS_CHANGED': {
-        const p = payload as Record<string, unknown>;
-        const deviceId = p['deviceId'] as string;
-        const status   = p['status'] as string;
+        const p        = payload as DeviceInfo;
+        const deviceId = p.deviceId;
+        const status   = p.status;
+        // Keep registry up to date
+        if (status === 'removed' || status === 'detached') {
+          this.deviceRegistry.delete(deviceId);
+        } else {
+          this.deviceRegistry.set(deviceId, p);
+        }
         const evtType  = status === 'connected'    ? 'device:connected'
                        : status === 'disconnected' ? 'device:disconnected'
                        : status === 'reconnecting' ? 'device:reconnecting'
                        : status === 'removed'      ? 'device:removed'
-                       : 'device:status';
-        this.broadcastToDeviceSubscribers(deviceId, evtType, p);
+                       : status === 'detached'     ? 'device:removed'
+                       : 'device:attached';
+        // Broadcast to ALL authenticated clients (new devices have no subscribers yet)
+        this.broadcast(evtType, p);
         break;
       }
       case 'BINARY_FRAME': {
@@ -302,6 +315,14 @@ export class GatewayService implements IService {
         if (msg.key && this.settings.apiKey && msg.key === this.settings.apiKey) {
           conn.authenticated = true;
           try { conn.socket.send(JSON.stringify({ type: 'auth:ok' })); } catch { /* ignore */ }
+          // Push current device list now that client is authenticated (LAN mode)
+          if (this.deviceRegistry.size > 0) {
+            const snapshot = JSON.stringify({
+              type:    'device:list',
+              payload: [...this.deviceRegistry.values()],
+            });
+            try { conn.socket.send(snapshot); } catch { /* ignore */ }
+          }
         } else {
           try {
             conn.socket.send(JSON.stringify({ type: 'auth:fail', code: 'GATEWAY_AUTH_FAILED' }));
@@ -370,8 +391,7 @@ export class GatewayService implements IService {
 
     // ── Devices ──────────────────────────────────────────────────────────────
     f.get(`${PREFIX}/devices`, async (_req, reply) => {
-      const result = await this._ipcRequest('LIST_DEVICES', {});
-      await reply.send({ data: result ?? [] });
+      await reply.send({ data: [...this.deviceRegistry.values()] });
     });
 
     f.get(`${PREFIX}/devices/:id`, async (req, reply) => {
@@ -430,6 +450,37 @@ export class GatewayService implements IService {
 
     f.get(`${PREFIX}/devices/:id/history`, async (_req, reply) => {
       await reply.send({ data: [] }); // stub
+    });
+
+    // ── Demo (testing only) ───────────────────────────────────────────────────
+    // POST /api/v1/demo/devices  — inject a mock device (visible to all WS clients)
+    // DELETE /api/v1/demo/devices/:id — remove a mock device
+    f.post(`${PREFIX}/demo/devices`, async (req, reply) => {
+      const body = (req.body ?? {}) as Partial<DeviceInfo>;
+      const deviceId = body.deviceId ?? `demo-${crypto.randomUUID().slice(0, 8)}`;
+      const device: DeviceInfo = {
+        deviceId,
+        name:          body.name          ?? `Demo Device (${deviceId.slice(-4)})`,
+        transportType: body.transportType ?? 'serial',
+        address:       body.address       ?? '/dev/demo0',
+        status:        'connected',
+        connectedAt:   Date.now(),
+        lastSeenAt:    Date.now(),
+        reconnectCount: 0,
+        protocolName:  body.protocolName  ?? undefined,
+      };
+      this.deviceRegistry.set(deviceId, device);
+      this.broadcast('device:attached', device);
+      await reply.code(201).send({ data: device });
+    });
+
+    f.delete(`${PREFIX}/demo/devices/:id`, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const device = this.deviceRegistry.get(id);
+      if (!device) return reply.code(404).send({ error: { code: 'DEVICE_NOT_FOUND' } });
+      this.deviceRegistry.delete(id);
+      this.broadcast('device:removed', { deviceId: id });
+      await reply.code(204).send();
     });
 
     // ── Plugins ───────────────────────────────────────────────────────────────
@@ -509,6 +560,16 @@ export class GatewayService implements IService {
         authenticated: isLocal,
       };
       service.wsClients.set(clientId, conn);
+
+      // Push current device list to new client so it starts populated
+      // (local mode = authenticated immediately; LAN mode = not yet)
+      if (conn.authenticated && service.deviceRegistry.size > 0) {
+        const snapshot = JSON.stringify({
+          type:    'device:list',
+          payload: [...service.deviceRegistry.values()],
+        });
+        try { socket.send(snapshot); } catch { /* ignore */ }
+      }
 
       socket.on('message', (raw: Buffer | string) => service._handleWsMessage(conn, raw));
       socket.on('close', () => {
