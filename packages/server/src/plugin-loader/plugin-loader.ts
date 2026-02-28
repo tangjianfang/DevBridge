@@ -6,7 +6,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { fork } from 'node:child_process';
-import { build } from 'esbuild';
 import type { IService, ServiceHealth, ServiceMetrics, IPCMessage, PluginManifest, PluginInfo } from '@devbridge/shared';
 import { sandboxPlugin } from './sandbox-plugin.js';
 import { validatePluginExports, RUNTIME_FORBIDDEN } from './plugin-validator.js';
@@ -156,6 +155,7 @@ export class PluginLoader implements IService {
 
     try {
       // 1. esbuild compile with sandbox intercept
+      const { build } = await import('esbuild');
       const buildResult = await build({
         stdin:    { contents: newSource, loader: 'ts' },
         bundle:   true,

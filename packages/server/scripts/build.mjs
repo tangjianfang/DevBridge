@@ -26,10 +26,12 @@ const nativeExternals = [
 ];
 
 // Pino transport modules loaded dynamically — keep external
+// Note: thread-stream is bundled (NOT external) because pino/lib/transport.js
+// requires it at module-load time even when no transport is configured.
+// pino-pretty and pino/file are still external (only used in CLI/dev mode).
 const dynamicExternals = [
   'pino-pretty',
   'pino/file',
-  'thread-stream',
 ];
 
 // esbuild itself is used by PluginLoader at runtime — keep external
