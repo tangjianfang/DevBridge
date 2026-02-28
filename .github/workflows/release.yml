@@ -1,22 +1,43 @@
 name: Release
 
-# Trigger on version tags (e.g. v0.1.0-beta.1, v1.2.3)
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# • Every push to main  → auto-build with version 0.1.0-beta.{run_number}
+# • Manual v* tag push  → build with that exact tag version
 on:
   push:
-    tags:
-      - 'v*'
-  # Allow manual trigger from the Actions tab
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to build (e.g. v0.1.0-beta.1)'
-        required: true
 
 env:
   NODE_VERSION: '20'
-  PNPM_VERSION: '9'
 
 jobs:
+  # ── Compute version ──────────────────────────────────────────────────────────
+  version:
+    name: Compute Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag:     ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+          else
+            BASE=$(node -p "require('./package.json').version" | sed -E 's/\.[0-9]+$//')
+            VERSION="${BASE}.${GITHUB_RUN_NUMBER}"
+            TAG="v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
+          echo "Version: ${VERSION}  Tag: ${TAG}"
+
   # ── Tests (Linux, fast) ──────────────────────────────────────────────────────
   test:
     name: Unit & Integration Tests
@@ -45,11 +66,11 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
-  # ── Build Windows EXE ────────────────────────────────────────────────────────
+  # ── Build Windows portable zip ───────────────────────────────────────────────
   build-windows:
     name: Build Windows EXE
     runs-on: windows-latest
-    needs: test
+    needs: [version, test]
     steps:
       - uses: actions/checkout@v4
 
@@ -67,6 +88,7 @@ jobs:
         run: node scripts/release.mjs
         env:
           NODE_ENV: production
+          DEVBRIDGE_VERSION: ${{ needs.version.outputs.version }}
 
       - name: Verify release artifacts
         run: |
@@ -97,7 +119,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: devbridge-windows-${{ github.ref_name }}
+          name: devbridge-windows-${{ needs.version.outputs.tag }}
           path: |
             release/*.zip
             installer/Output/*.exe
@@ -107,16 +129,31 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: build-windows
+    needs: [version, build-windows]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created tag $TAG"
+          else
+            echo "Tag $TAG already exists — skipping"
+          fi
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: devbridge-windows-${{ github.ref_name }}
+          name: devbridge-windows-${{ needs.version.outputs.tag }}
           path: artifacts/
 
       - name: List artifacts
@@ -125,7 +162,8 @@ jobs:
       - name: Determine pre-release flag
         id: prerelease
         run: |
-          if [[ "${{ github.ref_name }}" == *"beta"* ]] || [[ "${{ github.ref_name }}" == *"alpha"* ]] || [[ "${{ github.ref_name }}" == *"rc"* ]]; then
+          VERSION="${{ needs.version.outputs.version }}"
+          if [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"rc"* ]]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
@@ -134,8 +172,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: DevBridge ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          name:       "DevBridge v${{ needs.version.outputs.version }}"
+          tag_name:   ${{ needs.version.outputs.tag }}
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
           fail_on_unmatched_files: false
@@ -143,7 +181,7 @@ jobs:
             artifacts/release/*.zip
             artifacts/installer/Output/*.exe
           body: |
-            ## DevBridge ${{ github.ref_name }}
+            ## DevBridge v${{ needs.version.outputs.version }}
 
             ### Installation
 

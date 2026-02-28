@@ -26,6 +26,11 @@ const RELEASE   = path.join(ROOT, 'release');
 const args      = process.argv.slice(2);
 const skipFe    = args.includes('--skip-fe');
 
+// Version: prefer DEVBRIDGE_VERSION env var (set by CI), else read from package.json
+const pkgVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+const VERSION    = process.env.DEVBRIDGE_VERSION ?? pkgVersion;
+console.log(`  version ${VERSION}`);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function run(cmd, cwd = ROOT) {
@@ -143,7 +148,7 @@ fs.writeFileSync(
 console.log('  wrote   devbridge.json');
 
 // Write README
-fs.writeFileSync(path.join(PORTABLE_DIR, 'README.txt'), `DevBridge v0.1.0-beta.1 — Portable Edition
+fs.writeFileSync(path.join(PORTABLE_DIR, 'README.txt'), `DevBridge v${VERSION} — Portable Edition
 ==========================================
 
 Quick start (Windows):
@@ -169,7 +174,7 @@ console.log('  wrote   README.txt');
 
 console.log('\n── Step 6: Create zip archive ───────────────────────────────────');
 
-const zipName    = `DevBridge-v0.1.0-beta.1-win-x64.zip`;
+const zipName    = `DevBridge-v${VERSION}-win-x64.zip`;
 const zipOutPath = path.join(RELEASE, zipName);
 
 // Use PowerShell's Compress-Archive on Windows, zip on Linux/macOS
@@ -214,7 +219,7 @@ for (const modPath of nativeModules) {
 
 // ── Done ──────────────────────────────────────────────────────────────────────
 
-const zipPath = path.join(RELEASE, `DevBridge-v0.1.0-beta.1-win-x64.zip`);
+const zipPath = path.join(RELEASE, `DevBridge-v${VERSION}-win-x64.zip`);
 const zipSize = fs.existsSync(zipPath)
   ? (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1)
   : '?';
@@ -223,7 +228,7 @@ console.log(`
 ────────────────────────────────────────────────────────────
   ✓  Build complete
 
-  ZIP   release/DevBridge-v0.1.0-beta.1-win-x64.zip  (${zipSize} MB)
+  ZIP   release/DevBridge-v${VERSION}-win-x64.zip  (${zipSize} MB)
   Run   release\\devbridge-win-x64\\start.bat
 ────────────────────────────────────────────────────────────
 `);
