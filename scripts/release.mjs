@@ -122,6 +122,12 @@ console.log(`  copied  node.exe  (${(fs.statSync(nodeExe).size / 1024 / 1024).to
 const startBat = `@echo off
 setlocal
 set "APP_DIR=%~dp0"
+
+:: Kill any process already using port 4000
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":4000 "') do (
+  taskkill /F /PID %%a >nul 2>&1
+)
+
 "%APP_DIR%node.exe" "%APP_DIR%server.cjs" %*
 `;
 fs.writeFileSync(path.join(PORTABLE_DIR, 'start.bat'), startBat);
@@ -129,6 +135,14 @@ console.log('  wrote   start.bat');
 
 // Write start.ps1 launcher (PowerShell)
 const startPs1 = `$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Kill any process already using port 4000
+$existing = Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue
+if ($existing) {
+  $existing | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Milliseconds 500
+}
+
 & "$AppDir\\node.exe" "$AppDir\\server.cjs" @Args
 `;
 fs.writeFileSync(path.join(PORTABLE_DIR, 'start.ps1'), startPs1);
