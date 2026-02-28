@@ -100,30 +100,12 @@ jobs:
           $size = $zip.Length / 1MB
           Write-Host "Release artifact: $($zip.Name)  ($([math]::Round($size,1)) MB)"
 
-      # ── Build Inno Setup installer (optional — needs Inno Setup installed) ──
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup --no-progress -y
-        continue-on-error: true
-
-      - name: Build installer
-        run: |
-          if (Get-Command iscc -ErrorAction SilentlyContinue) {
-            iscc installer\devbridge.iss
-            Write-Host "Installer built."
-          } else {
-            Write-Host "Inno Setup not available — skipping installer step."
-          }
-        continue-on-error: true
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: devbridge-windows-${{ needs.version.outputs.tag }}
-          path: |
-            release/*.zip
-            installer/Output/*.exe
-          if-no-files-found: warn
+          path: release/*.zip
+          if-no-files-found: error
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
@@ -177,9 +159,7 @@ jobs:
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
           fail_on_unmatched_files: false
-          files: |
-            artifacts/release/*.zip
-            artifacts/installer/Output/*.exe
+          files: artifacts/release/*.zip
           body: |
             ## DevBridge v${{ needs.version.outputs.version }}
 
