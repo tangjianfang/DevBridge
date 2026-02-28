@@ -94,6 +94,8 @@ function getWsClient(): WsClient {
 
 export const wsClient: WsClient = new Proxy({} as WsClient, {
   get(_t, prop) {
-    return (getWsClient() as unknown as Record<string, unknown>)[prop as string];
+    const client = getWsClient();
+    const val = (client as unknown as Record<string, unknown>)[prop as string];
+    return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(client) : val;
   },
 });
