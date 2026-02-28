@@ -1,28 +1,5 @@
 // packages/shared/src/types/gateway.ts
-
-export interface CommandResult {
-  deviceId:      string;
-  correlationId: string;
-  success:       boolean;
-  data?:         Record<string, unknown>;
-  rawBuffer?:    Buffer;
-  durationMs:    number;
-  errorCode?:    string;
-  errorMessage?: string;
-}
-
-export interface BroadcastResult {
-  correlationId:  string;
-  results:        Array<{
-    deviceId:    string;
-    success:     boolean;
-    data?:       Record<string, unknown>;
-    errorCode?:  string;
-  }>;
-  succeededCount: number;
-  failedCount:    number;
-  totalMs:        number;
-}
+// Note: CommandResult and BroadcastResult are defined in command.ts
 
 export interface GatewaySettings {
   mode:       'local' | 'lan';
