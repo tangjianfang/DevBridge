@@ -2,7 +2,7 @@
 
 import type { TransportType, FfiFunctionDef, FfiCallbackDef } from './transport.js';
 import type { DeviceInfo, DeviceEvent } from './device.js';
-import type { CommandResult } from './gateway.js';
+import type { CommandResult } from './command.js';
 
 export interface PluginMatchRule {
   transport:    TransportType;
