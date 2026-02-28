@@ -102,7 +102,7 @@ jobs:
         with:
           name: devbridge-windows-${{ github.ref_name }}
           path: |
-            release/devbridge.exe
+            release/*.zip
             installer/Output/*.exe
           if-no-files-found: warn
 
@@ -143,7 +143,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
-            artifacts/release/devbridge.exe
+            artifacts/release/*.zip
             artifacts/installer/Output/*.exe
           body: |
             ## DevBridge ${{ github.ref_name }}

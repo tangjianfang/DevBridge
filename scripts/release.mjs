@@ -73,6 +73,11 @@ if (!skipFe) {
 console.log('\n── Step 3: Bundle server ────────────────────────────────────────');
 run('node packages/server/scripts/build.mjs');
 
+// Copy server bundle to root dist/ so pkg can find it
+const serverBundle = path.join(ROOT, 'packages', 'server', 'dist', 'server.cjs');
+const serverDest   = path.join(DIST, 'server.cjs');
+copy(serverBundle, serverDest);
+
 // ── Step 4: Copy frontend assets → dist/public ───────────────────────────────
 
 console.log('\n── Step 4: Copy frontend → dist/public ──────────────────────────');
@@ -85,36 +90,109 @@ if (!skipFe && fs.existsSync(frontendDist)) {
   console.warn('  ⚠ Frontend dist not found – skipping static assets');
 }
 
-// ── Step 5: Write pkg config ──────────────────────────────────────────────────
+// ── Step 5: Generate pkg config ──────────────────────────────────────────────
 
-console.log('\n── Step 5: Generate pkg config ──────────────────────────────────');
+console.log('\n── Step 5: Assemble portable distribution ───────────────────────');
 
-const pkgConfig = {
-  name:    'devbridge',
-  version: '0.1.0-beta.1',
-  bin:     './dist/server.cjs',
-  pkg: {
-    assets: [
-      'dist/public/**/*',
-    ],
-    scripts:  [],
-    targets:  ['node20-win-x64'],
-    outputPath: 'release',
-  },
+const PORTABLE_DIR = path.join(RELEASE, 'devbridge-win-x64');
+fs.mkdirSync(PORTABLE_DIR, { recursive: true });
+
+// Copy server bundle
+fs.copyFileSync(serverDest, path.join(PORTABLE_DIR, 'server.cjs'));
+console.log('  copied  server.cjs');
+
+// Copy frontend assets
+if (fs.existsSync(publicDest)) {
+  copy(publicDest, path.join(PORTABLE_DIR, 'public'));
+} else {
+  console.warn('  ⚠ public/ not found — run without --skip-fe for full build');
+}
+
+// Copy the currently running node.exe as the embedded runtime
+const nodeExe = process.execPath;
+fs.copyFileSync(nodeExe, path.join(PORTABLE_DIR, 'node.exe'));
+console.log(`  copied  node.exe  (${(fs.statSync(nodeExe).size / 1024 / 1024).toFixed(1)} MB)`);
+
+// Write start.bat launcher
+const startBat = `@echo off
+setlocal
+set "APP_DIR=%~dp0"
+"%APP_DIR%node.exe" "%APP_DIR%server.cjs" %*
+`;
+fs.writeFileSync(path.join(PORTABLE_DIR, 'start.bat'), startBat);
+console.log('  wrote   start.bat');
+
+// Write start.ps1 launcher (PowerShell)
+const startPs1 = `$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+& "$AppDir\\node.exe" "$AppDir\\server.cjs" @Args
+`;
+fs.writeFileSync(path.join(PORTABLE_DIR, 'start.ps1'), startPs1);
+console.log('  wrote   start.ps1');
+
+// Write default config
+const defaultConfig = {
+  mode:      'local',
+  port:      4000,
+  cors:      { enabled: false, origins: [] },
+  rateLimit: { max: 100, timeWindow: '1 minute' },
 };
+fs.writeFileSync(
+  path.join(PORTABLE_DIR, 'devbridge.json'),
+  JSON.stringify(defaultConfig, null, 2),
+);
+console.log('  wrote   devbridge.json');
 
-const pkgConfigPath = path.join(ROOT, 'pkg.config.json');
-fs.writeFileSync(pkgConfigPath, JSON.stringify(pkgConfig, null, 2));
-console.log(`  wrote   ${path.relative(ROOT, pkgConfigPath)}`);
+// Write README
+fs.writeFileSync(path.join(PORTABLE_DIR, 'README.txt'), `DevBridge v0.1.0-beta.1 — Portable Edition
+==========================================
 
-// ── Step 6: Run pkg ───────────────────────────────────────────────────────────
+Quick start (Windows):
+  1. Double-click start.bat
+     OR run: .\\node.exe server.cjs
+  2. Open http://localhost:4000 in your browser
 
-console.log('\n── Step 6: Package with @yao-pkg/pkg ───────────────────────────');
-run('npx --yes @yao-pkg/pkg dist/server.cjs --target node20-win-x64 --output release/devbridge.exe');
+Configuration:
+  Edit devbridge.json to change port, mode (local/lan), CORS, etc.
 
-// ── Step 7: Copy native bindings alongside exe ────────────────────────────────
+Environment variables:
+  PORT=4000                         overrides config port
+  DEVBRIDGE_MODE=local|lan
+  DEVBRIDGE_API_KEY=secret          enables API key auth
+  DEVBRIDGE_STATIC_DIR=C:\\path     custom frontend assets path
 
-console.log('\n── Step 7: Copy native .node modules → release/ ─────────────────');
+Requirements:
+  Windows 10/11 x64 — no additional runtime required
+`);
+console.log('  wrote   README.txt');
+
+// ── Step 6: Create zip archive ───────────────────────────────────────────────
+
+console.log('\n── Step 6: Create zip archive ───────────────────────────────────');
+
+const zipName    = `DevBridge-v0.1.0-beta.1-win-x64.zip`;
+const zipOutPath = path.join(RELEASE, zipName);
+
+// Use PowerShell's Compress-Archive on Windows, zip on Linux/macOS
+const isWin = process.platform === 'win32';
+if (isWin) {
+  run(
+    `powershell -Command "Compress-Archive -Path '${PORTABLE_DIR.replace(/\\/g, '\\\\')}\\*' -DestinationPath '${zipOutPath.replace(/\\/g, '\\\\')}' -Force"`,
+    ROOT,
+  );
+} else {
+  run(`zip -r "${zipOutPath}" .`, PORTABLE_DIR);
+}
+
+if (fs.existsSync(zipOutPath)) {
+  const zipSizeMb = (fs.statSync(zipOutPath).size / 1024 / 1024).toFixed(1);
+  console.log(`  ✓  ${zipName}  (${zipSizeMb} MB)`);
+}
+
+// ── Step 7: Copy native bindings alongside distribution ───────────────────────
+
+// ── Step 7: Copy native bindings alongside distribution ───────────────────────
+
+console.log('\n── Step 7: Copy native .node modules → portable dir ─────────────');
 
 const nativeModules = [
   'node_modules/node-hid/build/Release/HID.node',
@@ -126,7 +204,7 @@ const nativeModules = [
 for (const modPath of nativeModules) {
   const src = path.join(ROOT, modPath);
   if (fs.existsSync(src)) {
-    const dest = path.join(RELEASE, path.basename(src));
+    const dest = path.join(PORTABLE_DIR, path.basename(src));
     fs.copyFileSync(src, dest);
     console.log(`  copied  ${path.basename(src)}`);
   } else {
@@ -136,16 +214,16 @@ for (const modPath of nativeModules) {
 
 // ── Done ──────────────────────────────────────────────────────────────────────
 
-const exePath = path.join(RELEASE, 'devbridge.exe');
-const sizeMb  = fs.existsSync(exePath)
-  ? (fs.statSync(exePath).size / 1024 / 1024).toFixed(1)
+const zipPath = path.join(RELEASE, `DevBridge-v0.1.0-beta.1-win-x64.zip`);
+const zipSize = fs.existsSync(zipPath)
+  ? (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1)
   : '?';
 
 console.log(`
 ────────────────────────────────────────────────────────────
   ✓  Build complete
 
-  EXE  release/devbridge.exe   (${sizeMb} MB)
-  Run  release\\devbridge.exe
+  ZIP   release/DevBridge-v0.1.0-beta.1-win-x64.zip  (${zipSize} MB)
+  Run   release\\devbridge-win-x64\\start.bat
 ────────────────────────────────────────────────────────────
 `);

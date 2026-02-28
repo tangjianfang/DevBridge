@@ -1,6 +1,8 @@
 ; DevBridge Windows Installer — Inno Setup 6 script
 ; Requires: Inno Setup 6.x  (https://jrsoftware.org/isinfo.php)
 ;
+; Pre-requisite: run  node scripts/release.mjs  to build the portable distribution first.
+;
 ; Build:
 ;   iscc installer\devbridge.iss
 ;
@@ -9,8 +11,7 @@
 #define AppName      "DevBridge"
 #define AppVersion   "0.1.0-beta.1"
 #define AppPublisher "DevBridge Team"
-#define AppURL       "https://github.com/your-org/DevBridge"
-#define AppExeName   "devbridge.exe"
+#define AppURL       "https://github.com/tangjianfang/DevBridge"
 #define AppService   "DevBridgeGateway"
 
 [Setup]
@@ -28,14 +29,13 @@ AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=Output
 OutputBaseFilename=DevBridge-Setup-{#AppVersion}
-SetupIconFile=assets\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\node.exe
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion=0.1.0.1
@@ -51,37 +51,42 @@ Name: "startupicon";   Description: "Start DevBridge on Windows startup"; GroupD
 Name: "winsvc";        Description: "Install as Windows Service (runs without login)"; GroupDescription: "Service:"; Flags: unchecked; Check: IsAdmin
 
 [Files]
-; Main executable (pkg bundle — includes Node.js runtime + server code)
-Source: "..\release\{#AppExeName}";        DestDir: "{app}";              Flags: ignoreversion
+; Node.js runtime (copied from portable distribution)
+Source: "..\release\devbridge-win-x64\node.exe";   DestDir: "{app}"; Flags: ignoreversion
+
+; Server bundle
+Source: "..\release\devbridge-win-x64\server.cjs"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Frontend static assets
-Source: "..\dist\public\*";                DestDir: "{app}\public";        Flags: ignoreversion recursesubdirs createallsubdirs; Check: DirExists('..\dist\public')
+Source: "..\release\devbridge-win-x64\public\*";   DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Optional native bindings (only if they exist)
-Source: "..\release\*.node";               DestDir: "{app}";               Flags: ignoreversion skipifsourcedoesntexist external
+; Launcher scripts
+Source: "..\release\devbridge-win-x64\start.bat";  DestDir: "{app}"; Flags: ignoreversion
+Source: "..\release\devbridge-win-x64\start.ps1";  DestDir: "{app}"; Flags: ignoreversion
 
 ; Default configuration template
-Source: "assets\devbridge.default.json";   DestDir: "{app}";               Flags: onlyifdoesntexist; DestName: "devbridge.json"
+Source: "assets\devbridge.default.json"; DestDir: "{app}"; Flags: onlyifdoesntexist; DestName: "devbridge.json"
+
+; Optional native bindings
+Source: "..\release\devbridge-win-x64\*.node"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist external
 
 [Icons]
-Name: "{group}\{#AppName}";               Filename: "{app}\{#AppExeName}"
-Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#AppName}";       Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{group}\{#AppName}";                        Filename: "{app}\start.bat"
+Name: "{group}\{cm:UninstallProgram,{#AppName}}";  Filename: "{uninstallexe}"
+Name: "{commondesktop}\{#AppName}";                Filename: "{app}\start.bat"; Tasks: desktopicon
 
 [Registry]
-; Add to PATH (machine-level)
-Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 ; Startup registry entry (user-level)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExeName}"""; Tasks: startupicon
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: "cmd /c ""{app}\start.bat"""; Tasks: startupicon
 ; App metadata
-Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "InstallDir";  ValueData: "{app}"
-Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Version";     ValueData: "{#AppVersion}"
+Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
+Root: HKLM; Subkey: "Software\{#AppName}"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"
 
 [Run]
 ; Launch after install
-Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent; Check: not IsTaskSelected('winsvc')
+Filename: "{app}\start.bat"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent; Check: not IsTaskSelected('winsvc')
 ; Install Windows service
-Filename: "{sys}\sc.exe"; Parameters: "create ""{#AppService}"" binPath= """"""{app}\{#AppExeName}"""""" start= auto DisplayName= ""{#AppName} Gateway"""; Flags: runhidden; Tasks: winsvc
+Filename: "{sys}\sc.exe"; Parameters: "create ""{#AppService}"" binPath= ""{app}\node.exe"" start= auto DisplayName= ""{#AppName} Gateway"""; Flags: runhidden; Tasks: winsvc
 Filename: "{sys}\sc.exe"; Parameters: "description ""{#AppService}"" ""DevBridge universal hardware interface gateway"""; Flags: runhidden; Tasks: winsvc
 Filename: "{sys}\sc.exe"; Parameters: "start ""{#AppService}"""; Flags: runhidden; Tasks: winsvc
 
@@ -90,7 +95,6 @@ Filename: "{sys}\sc.exe"; Parameters: "stop ""{#AppService}""";   Flags: runhidd
 Filename: "{sys}\sc.exe"; Parameters: "delete ""{#AppService}"""; Flags: runhidden; RunOnceId: "DelSvc"
 
 [Code]
-// Check whether the app directory is already in the PATH
 function NeedsAddPath(Param: string): boolean;
 var
   OrigPath: string;
