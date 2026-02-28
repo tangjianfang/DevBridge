@@ -1,0 +1,28 @@
+{
+  "name": "@devbridge/plugin-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DevBridge Plugin SDK — build hardware device plugins",
+  "main":  "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types":  "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build":      "tsc -p tsconfig.json",
+    "build:watch":"tsc -p tsconfig.json --watch",
+    "clean":      "rimraf dist",
+    "typecheck":  "tsc --noEmit"
+  },
+  "dependencies": {
+    "@devbridge/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "rimraf":      "^6.0.1",
+    "typescript":  "^5.6.3"
+  }
+}

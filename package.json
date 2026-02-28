@@ -1,0 +1,31 @@
+{
+  "name": "devbridge-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DevBridge — Universal Hardware Interface Platform",
+  "engines": { "node": ">=20.0.0", "pnpm": ">=9.0.0" },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build":        "pnpm -r run build",
+    "build:watch":  "pnpm -r --parallel run build:watch",
+    "test":         "vitest run",
+    "test:watch":   "vitest",
+    "test:coverage":"vitest run --coverage",
+    "test:ui":      "vitest --ui",
+    "lint":         "eslint packages/*/src --ext .ts,.tsx",
+    "typecheck":    "pnpm -r run typecheck",
+    "dev":          "pnpm --parallel -r run dev",
+    "clean":        "pnpm -r run clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "@types/node":           "^20.17.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser":        "^7.18.0",
+    "@vitest/coverage-v8":  "^2.1.9",
+    "@vitest/ui":            "^2.1.9",
+    "eslint":                "^8.57.0",
+    "rimraf":                "^6.0.1",
+    "typescript":            "^5.6.3",
+    "vitest":                "^2.1.9"
+  }
+}
