@@ -26,9 +26,24 @@ const RELEASE   = path.join(ROOT, 'release');
 const args      = process.argv.slice(2);
 const skipFe    = args.includes('--skip-fe');
 
-// Version: prefer DEVBRIDGE_VERSION env var (set by CI), else read from package.json
-const pkgVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
-const VERSION    = process.env.DEVBRIDGE_VERSION ?? pkgVersion;
+// Version resolution:
+//   CI  → DEVBRIDGE_VERSION env var (e.g. "0.1.0-beta.12")
+//   Local → base from package.json + auto-incrementing .build-number file
+const pkgVersion  = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+let VERSION;
+if (process.env.DEVBRIDGE_VERSION) {
+  VERSION = process.env.DEVBRIDGE_VERSION;
+} else {
+  const buildNumFile = path.join(ROOT, '.build-number');
+  const buildNum = fs.existsSync(buildNumFile)
+    ? parseInt(fs.readFileSync(buildNumFile, 'utf8').trim(), 10) + 1
+    : 1;
+  fs.writeFileSync(buildNumFile, String(buildNum));
+  // Strip trailing numeric segment from base version so we always control the suffix
+  // e.g. "0.1.0-beta.1" -> "0.1.0-beta" + ".{buildNum}"
+  const baseVersion = pkgVersion.replace(/\.\d+$/, '');
+  VERSION = `${baseVersion}.${buildNum}`;
+}
 console.log(`  version ${VERSION}`);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -43,4 +43,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# local build counter (auto-incremented by scripts/release.mjs)
+.build-number
 next-env.d.ts
