@@ -7,3 +7,4 @@ export * from './types/protocol-dsl.js';
 export * from './types/plugin.js';
 export * from './types/service.js';
 export * from './types/gateway.js';
+export * from './types/command.js';

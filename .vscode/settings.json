@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^git add -A ; git commit -m \"feat\\(command-dispatcher\\): implement CommandDispatcher with 12 tests\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
